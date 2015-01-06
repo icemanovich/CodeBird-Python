@@ -1,6 +1,8 @@
 # coding=utf-8
 import pycurl
 import os
+import time
+import hashlib
 from io import BytesIO
 
 
@@ -37,25 +39,23 @@ class CodeBird:
     #  */
     # protected static $_oauth_bearer_token = null
 
-    """ The API endpoint to use """
     _endpoint = 'https://api.twitter.com/1.1/'
+    """ The API endpoint to use """
 
-    """
-     * The media API endpoint to use
-    """
     _endpoint_media = 'https://upload.twitter.com/1.1/'
+    """ The media API endpoint to use """
 
-    """ The API endpoint base to use """
     _endpoint_oauth = 'https://api.twitter.com/'
+    """ The API endpoint base to use """
 
-    """ The API endpoint to use for old requests """
     _endpoint_old = 'https://api.twitter.com/1/'
+    """ The API endpoint to use for old requests """
 
-    """ The Request or access token. Used to sign requests """
     _oauth_token = None
+    """ The Request or access token. Used to sign requests """
 
-    """ The corresponding request or access token secret """
     _oauth_token_secret = None
+    """ The corresponding request or access token secret """
 
     """ The format of data to return from API calls """
     # _return_format = CODEBIRD_RETURNFORMAT_OBJECT
@@ -63,17 +63,17 @@ class CodeBird:
     """ The file formats that Twitter accepts as image uploads """
     # _supported_media_files = array(IMAGETYPE_GIF, IMAGETYPE_JPEG, IMAGETYPE_PNG)
 
-    """ The current Codebird version """
     _version = '2.6.1'
+    """ The current Codebird version """
 
-    """ Auto-detect cURL absence """
     _use_curl = True
+    """ Auto-detect cURL absence """
 
-    """ Request timeout """
     _timeout = 10000
+    """ Request timeout """
 
-    """ Connection timeout """
     _connectionTimeout = 3000
+    """ Connection timeout """
 
     # =================================================== #
 
@@ -275,14 +275,14 @@ class CodeBird:
             url = self._endpoint + method + ".json"
         return url
 
-    def _detect_internal(self, method) -> bool:
+    def _detect_internal(self, method_name) -> bool:
         """ Detects if API call is internal
         :param str method: The API method to call
         :return: Whether the method is defined in internal API
         """
         # internals = ['users/recommendations']
         # return in_array($method, $internals);
-        return method in ['users/recommendations']
+        return method_name in ['users/recommendations']
 
     def _detect_media(self, method) -> bool:
         """ Detects if API call should use media endpoint
@@ -331,8 +331,8 @@ class CodeBird:
         def handler_function(*args, **kwargs):
             print("INSIDE :: ", fn, args, kwargs)
 
-            params = args[1]
-            print(fn, params)
+            # params = args[1]
+            # print("", fn, params)
             # /**
         # * Main API handler working on any requests you issue
         # *
@@ -344,7 +344,7 @@ class CodeBird:
         #
         # public function __call($fn, $params)
         # // parse parameters
-        #    apiparams = self._parseApiParams(params)
+        #     apiparams = self._parseApiParams(params)
 
         #    // stringify null and boolean parameters
         #    $apiparams = $this->_stringifyNullBoolParams($apiparams);
@@ -379,11 +379,27 @@ class CodeBird:
             return self.test_api()
         return handler_function
 
+    def _call_api(self, httpmethod, method, params=list, multipart=False, app_only_auth=False, internal=False):
 
+        """ Calls the API
+        :param str httpmethod:              The HTTP method to use for making the request
+        :param str method:                  The API method to call
+        :param list optional params:        The parameters to send along
+        :param bool optional multipart:     Whether to use multipart/form-data
+        :param bool optional app_only_auth: Whether to use app-only bearer authentication
+        :return:
+        """
+
+        if not app_only_auth and self._oauth_token is None and method[:5] != "oauth":
+            raise Exception('To call this API, the OAuth access token must be set.')
+
+        if self._use_curl:
+            return self._call_api_curl(httpmethod, method, params, multipart, app_only_auth, internal)
+
+        return self._call_api_no_curl(httpmethod, method, params, multipart, app_only_auth, internal)
 
     def _call_api_curl(self, httpmethod="GET", method='', params=None, multipart=False, app_only_auth=False, internal=False):
-        """
-        Calls the API using cURL
+        """ Calls the API using cURL
         :param str  httpmethod:    The HTTP method to use for making the request (Get or Post)
         :param str  method:        The API method to call
         :param list optional params:        The parameters to send along
@@ -396,6 +412,10 @@ class CodeBird:
             """
             Get Url form params and multipart
             """
+
+            authorization, url, params, request_headers = self._callApiPreparations(
+                httpmethod, method, params, multipart, app_only_auth)
+
             # list ($authorization, $url, $params, $request_headers)
             # = $this->_callApiPreparations(
             #     $httpmethod, $method, $params, $multipart, $app_only_auth
@@ -442,6 +462,156 @@ class CodeBird:
         except Exception as e:
             print("ERROR :: ", e)
 
+    def _call_api_no_curl(self, httpmethod="GET", method='', params=None, multipart=False, app_only_auth=False, internal=False):
+
+        """Calls the API without cURL
+
+        :param str httpmethod:  The HTTP method to use for making the request
+        :param str method: The API method to call
+        :param list optional params: The parameters to send along
+        :param bool optional multipart:  Whether to use multipart/form-data
+        :param bool optional app_only_auth: Whether to use app-only bearer authentication
+        :param bool optional internal: Whether to use internal call
+        :return: The API reply, encoded in the set return_format
+        """
+
+        pass
+
+    def _parse_api_params(self, params) -> list:
+        """Parse given params, detect query-style params
+        :param str|list params: Parameters to parse
+        :return: list
+        """
+
+        api_params = list()
+        if len(params) == 0:
+            return api_params
+
+        # if (is_array($params[0])) {
+        #     // given parameters are array
+        #     $apiparams = $params[0];
+        #     if (! is_array($apiparams)) {
+        #         $apiparams = array();
+        #     }
+        #     return apiparams;
+        # }
+
+        # // user gave us query-style params
+        # parse_str($params[0], $apiparams);
+        # if (! is_array($apiparams)) {
+        #     $apiparams = array();
+        # }
+
+        # if (! get_magic_quotes_gpc()) {
+        #     return $apiparams;
+        # }
+
+        # // remove auto-added slashes recursively if on magic quotes steroids
+        # foreach($apiparams as $key => $value) {
+        #     if (is_array($value)) {
+        #         $apiparams[$key] = array_map('stripslashes', $value);
+        #     } else {
+        #         $apiparams[$key] = stripslashes($value);
+        #     }
+        # }
+
+        return api_params
+
+    def is_scalar(self, value):
+        return isinstance(value, (type(None), str, int, float, bool))
+
+    # /**
+    #  * Replace null and boolean parameters with their string representations
+    #  *
+    #  * @param array $apiparams Parameter array to replace in
+    #  *
+    #  * @return array $apiparams
+    #  */
+    def _stringify_null_bool_params(self, api_params) -> list:
+        for k, value in enumerate(api_params):
+            if not self.is_scalar(value):
+                # no need to try replacing arrays
+                continue
+            if value is None:
+                api_params[k] = 'null'
+            elif isinstance(value, bool):
+                api_params[k] = 'true' if value is True else 'false'
+        return api_params
+
+    # /**
+    #  * Maps called PHP magic method name to Twitter API method
+    #  *
+    #  * @param string $fn              Function called
+    #  * @param array  $apiparams byref API parameters
+    #  *
+    #  * @return array (string method, string method_template)
+    #  */
+    def _mapFnToApiMethod(self, fn, apiparams):
+
+        # replace _ by /
+        method = self._map_fn_insert_slashes(fn)
+
+        # // undo replacement for URL parameters
+        method = self._mapFnRestoreParamUnderscores(method)
+        #
+        # // replace AA by URL parameters
+        # $method_template = $method;
+        # $match           = array();
+        # if (preg_match('/[A-Z_]{2,}/', $method, $match)) {
+        #     foreach ($match as $param) {
+        #         $param_l = strtolower($param);
+        #         $method_template = str_replace($param, ':' . $param_l, $method_template);
+        #         if (! isset($apiparams[$param_l])) {
+        #             for ($i = 0; $i < 26; $i++) {
+        #                 $method_template = str_replace(chr(65 + $i), '_' . chr(97 + $i), $method_template);
+        #             }
+        #             throw new \Exception(
+        #                 'To call the templated method "' . $method_template
+        #                 . '", specify the parameter value for "' . $param_l . '".'
+        #             );
+        #         }
+        #         $method  = str_replace($param, $apiparams[$param_l], $method);
+        #         unset($apiparams[$param_l]);
+        #     }
+        # }
+        #
+        # // replace A-Z by _a-z
+        # for ($i = 0; $i < 26; $i++) {
+        #     $method  = str_replace(chr(65 + $i), '_' . chr(97 + $i), $method);
+        #     $method_template = str_replace(chr(65 + $i), '_' . chr(97 + $i), $method_template);
+        # }
+        #
+        # return array($method, $method_template);
+        pass
+
+    # /**/
+    #  * API method mapping: Replaces _ with / character
+    #  *
+    #  * @param string $fn Function called
+    #  *
+    #  * @return string API method to call
+    #  */
+    def _map_fn_insert_slashes(self, fn) -> str:
+        return '/'.join(fn.split('_'))
+
+    # /**
+    #  * API method mapping: Restore _ character in named parameters
+    #  *
+    #  * @param string $method API method to call
+    #  *
+    #  * @return string API method with restored underscores
+    #  */
+    # protected function _mapFnRestoreParamUnderscores($method)
+    # {
+    #     $url_parameters_with_underscore = array('screen_name', 'place_id');
+    #     foreach ($url_parameters_with_underscore as $param) {
+    #         $param = strtoupper($param);
+    #         $replacement_was = str_replace('_', '/', $param);
+    #         $method = str_replace($replacement_was, $param, $method);
+    #     }
+    #
+    #     return $method;
+    # }
 
     # /**
     #  * Do preparations to make the API call
@@ -454,58 +624,49 @@ class CodeBird:
     #  *
     #  * @return array (string authorization, string url, array params, array request_headers)
     #  */
-    # protected function _callApiPreparations(
-    #     $httpmethod, $method, $params, $multipart, $app_only_auth
-    # )
-    # {
-    #     $authorization = null;
-    #     $url           = $this->_getEndpoint($method);
-    #     $request_headers = array();
-    #     if ($httpmethod === 'GET') {
-    #         if (! $app_only_auth) {
-    #             $authorization = $this->_sign($httpmethod, $url, $params);
-    #         }
-    #         if (json_encode($params) !== '{}'
-    #             && json_encode($params) !== '[]'
-    #         ) {
-    #             $url .= '?' . http_build_query($params);
-    #         }
-    #     } else {
-    #         if ($multipart) {
-    #             if (! $app_only_auth) {
-    #                 $authorization = $this->_sign($httpmethod, $url, array());
-    #             }
-    #             $params = $this->_buildMultipart($method, $params);
-    #         } else {
-    #             if (! $app_only_auth) {
-    #                 $authorization = $this->_sign($httpmethod, $url, $params);
-    #             }
-    #             $params        = http_build_query($params);
-    #         }
-    #         if ($multipart) {
-    #             $first_newline      = strpos($params, "\r\n");
-    #             $multipart_boundary = substr($params, 2, $first_newline - 2);
-    #             $request_headers[]  = 'Content-Type: multipart/form-data; boundary='
-    #                 . $multipart_boundary;
-    #         }
-    #     }
-    #     if ($app_only_auth) {
-    #         if (self::$_oauth_consumer_key === null
-    #             && self::$_oauth_bearer_token === null
-    #         ) {
-    #             throw new \Exception('To make an app-only auth API request, consumer key or bearer token must be set.');
-    #         }
-    #         // automatically fetch bearer token, if necessary
-    #         if (self::$_oauth_bearer_token === null) {
-    #             $this->oauth2_token();
-    #         }
-    #         $authorization = 'Bearer ' . self::$_oauth_bearer_token;
-    #     }
-    #
-    #     return array(
-    #         $authorization, $url, $params, $request_headers
-    #     );
-    # }
+    def _callApiPreparations(self, httpmethod, method, params, multipart, app_only_auth):
+
+        authorization = None
+        url           = self._get_endpoint(method)
+        request_headers = list
+        if httpmethod == 'GET':
+            if not app_only_auth:
+                authorization = self._sign(httpmethod, url, params)
+
+            # if (json_encode($params) !== '{}'
+            #     && json_encode($params) !== '[]'
+            # ) {
+            #     $url .= '?' . http_build_query($params);
+            # }
+        else:
+            if multipart:
+                if not app_only_auth:
+                    authorization = self._sign(httpmethod, url, list)
+
+                # params = self._buildMultipart(method, params)
+            else:
+                if not app_only_auth:
+                    authorization = self._sign(httpmethod, url, params)
+
+                # params        = http_build_query(params)
+
+            # if multipart:
+            #     first_newline      = strpos($params, "\r\n");
+            #     multipart_boundary = substr($params, 2, $first_newline - 2);
+            #     request_headers[]  = 'Content-Type: multipart/form-data; boundary='  + multipart_boundary
+
+        if app_only_auth:
+            if self._oauth_consumer_key is None and self._oauth_bearer_token is None:
+                raise Exception('To make an app-only auth API request, consumer key or bearer token must be set.')
+
+            # automatically fetch bearer token, if necessary
+            # if self._oauth_bearer_token is None:
+            #     self.oauth2_token()
+
+            authorization = 'Bearer ' + self._oauth_bearer_token
+
+        return authorization, url, params, request_headers
+
     #
     # /**
     #  * Parses the API reply to separate headers from the body
@@ -609,11 +770,168 @@ class CodeBird:
     #     return $parsed;
     # }
 
+    # /**
+    #  * Check if there were any SSL certificate errors
+    #  *
+    #  * @param int $validation_result The curl error number
+    #  *
+    #  * @return void
+    #  */
+    # protected function _validateSslCertificate($validation_result)
+    # {
+    #     if (in_array(
+    #             $validation_result,
+    #             array(
+    #                 CURLE_SSL_CERTPROBLEM,
+    #                 CURLE_SSL_CACERT,
+    #                 CURLE_SSL_CACERT_BADFILE,
+    #                 CURLE_SSL_CRL_BADFILE,
+    #                 CURLE_SSL_ISSUER_ERROR
+    #             )
+    #         )
+    #     ) {
+    #         throw new \Exception(
+    #             'Error ' . $validation_result
+    #             . ' while validating the Twitter API certificate.'
+    #         );
+    #     }
+    # }
 
+    # /**
+    #  * Signing helpers
+    #  */
+    def _url(self, data) -> str:
+        """ URL-encodes the given data
+        :param str|list data:
+        :return: The encoded data
+        """
+        return data
+    #     if (is_array($data)) {
+    #         return array_map(array(
+    #             $this,
+    #             '_url'
+    #         ), $data);
+    #     } elseif (is_scalar($data)) {
+    #         return str_replace(array(
+    #             '+',
+    #             '!',
+    #             '*',
+    #             "'",
+    #             '(',
+    #             ')'
+    #         ), array(
+    #             ' ',
+    #             '%21',
+    #             '%2A',
+    #             '%27',
+    #             '%28',
+    #             '%29'
+    #         ), rawurlencode($data));
+    #     } else {
+    #         return '';
+    #     }
 
+    def _sha1(self, data) -> str:
+        """ Gets the base64-encoded SHA1 hash for the given data
+
+        :param str data: The data to calculate the hash from
+        :return str:     The hash
+        """
+        return '121212121212'
+    # {
+    #     if (self::$_oauth_consumer_secret === null) {
+    #         throw new \Exception('To generate a hash, the consumer secret must be set.');
+    #     }
+    #     if (!function_exists('hash_hmac')) {
+    #         throw new \Exception('To generate a hash, the PHP hash extension must be available.');
+    #     }
+    #     return base64_encode(hash_hmac(
+    #         'sha1',
+    #         $data,
+    #         self::$_oauth_consumer_secret
+    #         . '&'
+    #         . ($this->_oauth_token_secret != null
+    #             ? $this->_oauth_token_secret
+    #             : ''
+    #         ),
+    #         true
+    #     ));
+    # }
+
+    def _nonce(self, length=8) -> str:
+        """ Generates a (hopefully) unique random string
+        :param int optional length: The length of the string to generate
+        :return str: The random string
+        """
+        if length < 1:
+            raise Exception('Invalid nonce length.')
+
+        return hashlib.md5(str(int(time.time())).encode('utf-8')).hexdigest()[:length]
+
+    # /**
+    #  *
+    #  *
+    #  *
+    #  *
+    #  * @return
+    #  */
+
+    def _sign(self, httpmethod, method, params={}, append_to_get=False) -> str:
+        """ Generates an OAuth signature
+        :param str           httpmethod:    Usually either 'GET' or 'POST' or 'DELETE'
+        :param str           method:        The API method to call
+        :param dict optional params:        The API call parameters, associative
+        :param bool optional append_to_get: Whether to append the OAuth params to GET
+        :return str: Authorization HTTP header
+        """
+
+        if self._oauth_consumer_key is None:
+            raise Exception('To generate a signature, the consumer key must be set.')
+
+        sign_params = {
+            'consumer_key'    : self._oauth_consumer_key,
+            'version'         : '1.0',
+            'timestamp'       : str(int(time.time())),
+            'nonce'           : self._nonce(),
+            'signature_method': 'HMAC-SHA1'
+        }
+
+        sign_base_params = {}
+        for value in sign_params.items():
+            sign_base_params['oauth_' + value[0]] = self._url(value[-1])
+
+        if self._oauth_token is not None:
+            sign_base_params['oauth_token'] = self._url(self._oauth_token)
+
+        signature = ''
+        if append_to_get is True:
+            for value in params.items():
+                sign_base_params[value[0]] = self._url(value[-1])
+
+            sign_base_string = []
+            for value in sign_base_params.items():
+                sign_base_string.append(value[0] + '=' + value[-1])
+
+            sign_base_string = '&'.join(sign_base_string)
+            signature = self._sha1(httpmethod + '&' + self._url(method) + '&' + self._url(sign_base_string))
+
+        sign_base_params['oauth_signature'] = signature
+        params = sign_base_params
+
+        authorization = []
+        if append_to_get is True:
+            for value in sorted(params.items()):
+                authorization.append(value[0] + '="' + self._url(value[-1]) + '"')
+            return ', '.join(authorization)
+
+        for value in sorted(params.items()):
+            authorization.append(value[0] + '="' + self._url(value[-1]) + '"')
+
+        authorization = 'OAuth ' + ', '.join(authorization)
+
+        return authorization
 
     """ =========== TEST =========== """
-
     def make_curl(self):
         try:
             buffer = BytesIO()
@@ -640,26 +958,29 @@ class CodeBird:
             print("ERROR :: ", e)
 
 
+# ======================================= #
+
 class Entity:
-    '''Class to represent an entity. Callable to update the entity's position.'''
+    """Class to represent an entity. Callable to update the entity's position."""
 
     def __init__(self, size, x, y):
         self.x, self.y = x, y
         self.size = size
 
     def __call__(self, x, y):
-        '''Change the position of the entity.'''
+        """Change the position of the entity."""
         self.x, self.y = x, y
 
     def boo(self, *args):
         print("BOO :: ", args)
+        return 'aaa', 'bbb'
 
     def __getattr__(self, name):
         def handler_function(*args, **kwargs):
             print(name, args, kwargs)
         return handler_function
 
-
+# ======================================= #
 
 if __name__ == '__main__':
     print("Start")
@@ -670,10 +991,25 @@ if __name__ == '__main__':
     access_token = '2578434163-0CPPrAKfg3OtrccnEBjiojvFzZUeWl8fYyJf2bF'
 
     # curl = CodeBird()._call_api_curl('GET', 'application_rateLimitStatus')
-    curl = CodeBird().boo('fn', 'params', 'pppp')
+    # curl = CodeBird().boo('fn', 'params', 'pppp')
     # CodeBird()._get_endpoint('application/rate_limit_status')
-    print("\nOUT :: ", curl)
+    # print("\nOUT :: ", curl)
     # a = Entity(10, 1, 2)
-    # a.boo('test')
+    # t1, t2 = a.boo('test')
+    # print(t1, t2)
     # a.foo('boo/mamazuzu', 1, 2, 3)
     # print("OUT :: ", a)
+
+    # sign TEST
+
+
+    p_httpmethod = 'GET'
+    p_method = 'https://api.twitter.com/1.1/application/rate_limit_status.json'
+    p_params = {}
+    p_append_to_get = False
+
+    cb = CodeBird()
+    cb._oauth_consumer_key = consumer_key
+    # signt = cb._sign(p_httpmethod, p_method, p_params, p_append_to_get)
+    signt = cb._sign(p_httpmethod, p_method)
+    print("SIGN :: " + signt)
