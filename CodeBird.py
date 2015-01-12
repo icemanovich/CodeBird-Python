@@ -1,8 +1,11 @@
 # coding=utf-8
 import pycurl
+import urllib.parse
 import os
 import time
 import hashlib
+import hmac
+import base64
 from io import BytesIO
 
 
@@ -104,8 +107,8 @@ class CodeBird:
 
     def set_token(self, token, secret):
         """ Sets the OAuth request or access token and secret (User key)
-        :param str token:  OAuth request or access token
-        :param str secret: OAuth request or access token secret
+        :param str|None token:  OAuth request or access token
+        :param str|None secret: OAuth request or access token secret
         :return:
         """
         self._oauth_token        = token
@@ -314,73 +317,75 @@ class CodeBird:
         if method in []:
             method = method + '__post' if len(params) > 0 else method
 
-        apimethods = self.get_api_methods()
+        api_methods = self.get_api_methods()
 
-        for httpmethod in apimethods:
-            if method in apimethods[httpmethod]:
+        for httpmethod in api_methods:
+            if method in api_methods[httpmethod]:
                 return httpmethod
 
         raise Exception("Can't find HTTP method to use for \"%s\"." % method)
 
-    def test_api(self):
-        return 'qwerty'
+    def _detect_multipart(self, method) -> bool:
+        """Detects if API call should use multipart/form-data
+
+        :param str method: The API method to call
+        :return: Whether the method should be sent as multipart
+        """
+        multi_parts = [
+            # Tweets
+            'statuses/update_with_media',
+            'media/upload',
+
+            # Users
+            'account/update_profile_background_image',
+            'account/update_profile_image',
+            'account/update_profile_banner'
+        ]
+        return method in multi_parts
 
     # ----------
     def __getattr__(self, fn):
-        # print(fn, params)
-        def handler_function(*args, **kwargs):
-            print("INSIDE :: ", fn, args, kwargs)
+        def call(*args, **kwargs):
+            """ Main API handler working on any requests you issue
+            :param args:
+            :param kwargs:
+            :param str optional fn:      The member function you called
+            :param dict optional params: The parameters you sent along
+            :return: The API reply encoded in the set return_format
+            """
+            print("MAGIC_CALL :: ", fn, args, kwargs)
 
-            # params = args[1]
-            # print("", fn, params)
-            # /**
-        # * Main API handler working on any requests you issue
-        # *
-        # * @param string $fn    The member function you called
-        # * @param array $params The parameters you sent along
-        # *
-        # * @return mixed The API reply encoded in the set return_format
-        # */
-        #
-        # public function __call($fn, $params)
-        # // parse parameters
-        #     apiparams = self._parseApiParams(params)
+            params = args[0] if len(args) > 0 else {}
+            print("CALL :: ", fn, params)
 
-        #    // stringify null and boolean parameters
-        #    $apiparams = $this->_stringifyNullBoolParams($apiparams);
-        #
-        #    $app_only_auth = false;
-        #    if (count($params) > 1) {
-        #        // convert app_only_auth param to bool
-        #        $app_only_auth = !! $params[1];
-        #    }
-        #
-        #    // reset token when requesting a new token
-        #    // (causes 401 for signature error on subsequent requests)
-        #    if ($fn === 'oauth_requestToken') {
-        #        $this->setToken(null, null);
-        #    }
-        #
-        #    // map function name to API method
-        #    list($method, $method_template) = $this->_mapFnToApiMethod($fn, $apiparams);
-        #
-        #    $httpmethod = $this->_detectMethod($method_template, $apiparams);
-        #    $multipart  = $this->_detectMultipart($method_template);
-        #    $internal   = $this->_detectInternal($method_template);
-        #
-        #    return $this->_callApi(
-        #        $httpmethod,
-        #        $method,
-        #        $apiparams,
-        #        $multipart,
-        #        $app_only_auth,
-        #        $internal
-        #
-            return self.test_api()
-        return handler_function
+            # parse parameters
+            apiparams = self._parse_api_params(params)
+
+            # stringify null and boolean parameters
+            apiparams = self._stringify_null_bool_params(apiparams)
+
+            app_only_auth = False
+            if len(params) > 1:
+                # convert app_only_auth param to bool
+                app_only_auth = bool(params[1])
+
+            # reset token when requesting a new token
+            # (causes 401 for signature error on subsequent requests)
+            if fn == 'oauth_requestToken':
+                self.set_token(None, None)
+
+            # map function name to API method
+            method, method_template = self._mapFnToApiMethod(fn, apiparams)
+
+            httpmethod = self._detect_method(method_template, apiparams)
+            multipart  = self._detect_multipart(method_template)
+            internal   = self._detect_internal(method_template)
+
+            return self._call_api(httpmethod, method, apiparams, multipart, app_only_auth, internal)
+
+        return call
 
     def _call_api(self, httpmethod, method, params=list, multipart=False, app_only_auth=False, internal=False):
-
         """ Calls the API
         :param str httpmethod:              The HTTP method to use for making the request
         :param str method:                  The API method to call
@@ -412,17 +417,8 @@ class CodeBird:
             """
             Get Url form params and multipart
             """
-
-            authorization, url, params, request_headers = self._callApiPreparations(
+            authorization, url, params, request_headers = self._call_api_preparations(
                 httpmethod, method, params, multipart, app_only_auth)
-
-            # list ($authorization, $url, $params, $request_headers)
-            # = $this->_callApiPreparations(
-            #     $httpmethod, $method, $params, $multipart, $app_only_auth
-            # );
-
-            # url = 'http://ya.ru'
-            url = self._get_endpoint(method)
 
             buffer = BytesIO()
             c = pycurl.Curl()
@@ -433,10 +429,6 @@ class CodeBird:
 
             print("URL :: " + url)
             c.setopt(pycurl.URL, url)
-
-            """ TEST STRING """
-            authorization = 'OAuth oauth_consumer_key="oLVqNUOVNERDtKfh9n3vW1LXd", oauth_nonce="d99dfd58", oauth_signature="Pe9VdWV5UYppS5LktFccKTqi%2BDI%3D", oauth_signature_method="HMAC-SHA1", oauth_timestamp="1420382028", oauth_token="2578434163-0CPPrAKfg3OtrccnEBjiojvFzZUeWl8fYyJf2bF", oauth_version="1.0"'
-            """ END TEST STRING """
 
             request_headers = ['Authorization: ' + authorization, 'Expect:']
 
@@ -474,16 +466,18 @@ class CodeBird:
         :param bool optional internal: Whether to use internal call
         :return: The API reply, encoded in the set return_format
         """
-
+        #
+        # TODO :: Write code for API call without CURL request !!!
+        #
         pass
 
-    def _parse_api_params(self, params) -> list:
+    def _parse_api_params(self, params) -> dict:
         """Parse given params, detect query-style params
         :param str|list params: Parameters to parse
-        :return: list
+        :return: dict
         """
 
-        api_params = list()
+        api_params = {}
         if len(params) == 0:
             return api_params
 
@@ -520,42 +514,40 @@ class CodeBird:
     def is_scalar(self, value):
         return isinstance(value, (type(None), str, int, float, bool))
 
-    # /**
-    #  * Replace null and boolean parameters with their string representations
-    #  *
-    #  * @param array $apiparams Parameter array to replace in
-    #  *
-    #  * @return array $apiparams
-    #  */
-    def _stringify_null_bool_params(self, api_params) -> list:
-        for k, value in enumerate(api_params):
+    def _stringify_null_bool_params(self, api_params) -> dict:
+        """ Replace null and boolean parameters with their string representations
+        :param dict api_params: Parameter array to replace in
+        :return:
+        """
+        for value in api_params.items():
             if not self.is_scalar(value):
                 # no need to try replacing arrays
                 continue
-            if value is None:
-                api_params[k] = 'null'
-            elif isinstance(value, bool):
-                api_params[k] = 'true' if value is True else 'false'
+            if value[1] is None:
+                api_params[value[0]] = 'null'
+            elif isinstance(value[1], bool):
+                api_params[value[0]] = 'true' if value[1] is True else 'false'
         return api_params
 
-    # /**
-    #  * Maps called PHP magic method name to Twitter API method
-    #  *
-    #  * @param string $fn              Function called
-    #  * @param array  $apiparams byref API parameters
-    #  *
-    #  * @return array (string method, string method_template)
-    #  */
-    def _mapFnToApiMethod(self, fn, apiparams):
+    def _mapFnToApiMethod(self, fn, apiparams) -> (str, str):
+        """ Maps called PHP magic method name to Twitter API method
+
+        :param str fn:    Function called
+        :param list|dict apiparams: byref API parameters
+        :return (str, str): string method, string method_template
+        """
 
         # replace _ by /
         method = self._map_fn_insert_slashes(fn)
 
-        # // undo replacement for URL parameters
-        method = self._mapFnRestoreParamUnderscores(method)
+        # undo replacement for URL parameters
+        method = self._map_fn_restore_param_underscores(method)
+
+        # copy string
+        method_template = (method + '.')[:-1]
         #
         # // replace AA by URL parameters
-        # $method_template = $method;
+        # method_template = method
         # $match           = array();
         # if (preg_match('/[A-Z_]{2,}/', $method, $match)) {
         #     foreach ($match as $param) {
@@ -576,42 +568,32 @@ class CodeBird:
         # }
         #
         # // replace A-Z by _a-z
-        # for ($i = 0; $i < 26; $i++) {
-        #     $method  = str_replace(chr(65 + $i), '_' . chr(97 + $i), $method);
-        #     $method_template = str_replace(chr(65 + $i), '_' . chr(97 + $i), $method_template);
-        # }
-        #
-        # return array($method, $method_template);
-        pass
+        for i in range(26):
+            method = method.replace(chr(65 + i), '_' + chr(97 + i), 1)
+            method_template = method_template.replace(chr(65 + i), '_' + chr(97 + i), 1)
 
-    # /**/
-    #  * API method mapping: Replaces _ with / character
-    #  *
-    #  * @param string $fn Function called
-    #  *
-    #  * @return string API method to call
-    #  */
+        return method, method_template
+
     def _map_fn_insert_slashes(self, fn) -> str:
+        """ API method mapping: Replaces _ with / character
+        :param str fn: Function called
+        :return str:   API method to call
+        """
         return '/'.join(fn.split('_'))
 
-    # /**
-    #  * API method mapping: Restore _ character in named parameters
-    #  *
-    #  * @param string $method API method to call
-    #  *
-    #  * @return string API method with restored underscores
-    #  */
-    # protected function _mapFnRestoreParamUnderscores($method)
-    # {
-    #     $url_parameters_with_underscore = array('screen_name', 'place_id');
-    #     foreach ($url_parameters_with_underscore as $param) {
-    #         $param = strtoupper($param);
-    #         $replacement_was = str_replace('_', '/', $param);
-    #         $method = str_replace($replacement_was, $param, $method);
-    #     }
-    #
-    #     return $method;
-    # }
+    def _map_fn_restore_param_underscores(self, method) -> str:
+        """ API method mapping: Restore _ character in named parameters
+
+        :param str method: API method to call
+        :return: API method with restored underscores
+        """
+        url_parameters_with_underscore = ['screen_name', 'place_id']
+        for param in url_parameters_with_underscore:
+            param = param.upper()
+            replacement_was = param.replace('_', '/')
+            method = method.replace(replacement_was, param)
+
+        return method
 
     # /**
     #  * Do preparations to make the API call
@@ -624,11 +606,12 @@ class CodeBird:
     #  *
     #  * @return array (string authorization, string url, array params, array request_headers)
     #  */
-    def _callApiPreparations(self, httpmethod, method, params, multipart, app_only_auth):
+    def _call_api_preparations(self, httpmethod, method, params, multipart, app_only_auth):
 
-        authorization = None
-        url           = self._get_endpoint(method)
+        url             = self._get_endpoint(method)
+        authorization   = None
         request_headers = list
+
         if httpmethod == 'GET':
             if not app_only_auth:
                 authorization = self._sign(httpmethod, url, params)
@@ -641,7 +624,7 @@ class CodeBird:
         else:
             if multipart:
                 if not app_only_auth:
-                    authorization = self._sign(httpmethod, url, list)
+                    authorization = self._sign(httpmethod, url, {})
 
                 # params = self._buildMultipart(method, params)
             else:
@@ -675,10 +658,12 @@ class CodeBird:
     #  *
     #  * @return array (headers, reply)
     #  */
-    # protected function _parseApiHeaders($reply) {
-    #     // split headers and body
-    #     $headers = array();
-    #     $reply = explode("\r\n\r\n", $reply, 4);
+    def _parseApiHeaders(self, reply):
+
+        # split headers and body
+        headers = []
+        pass
+        # $reply = explode("\r\n\r\n", $reply, 4);
     #
     #     // check if using proxy
     #     $proxy_strings = array();
@@ -805,13 +790,17 @@ class CodeBird:
         :param str|list data:
         :return: The encoded data
         """
-        return data
-    #     if (is_array($data)) {
+        if isinstance(data, list) or isinstance(data, dict):
+            return data
     #         return array_map(array(
     #             $this,
     #             '_url'
     #         ), $data);
-    #     } elseif (is_scalar($data)) {
+        elif self.is_scalar(data):
+            #
+            # TODO :: Incorrect Quoting URL address
+            #
+            return urllib.parse.quote(data)
     #         return str_replace(array(
     #             '+',
     #             '!',
@@ -827,9 +816,13 @@ class CodeBird:
     #             '%28',
     #             '%29'
     #         ), rawurlencode($data));
-    #     } else {
-    #         return '';
-    #     }
+            # source = http://yandex.ru/news.php?type=123&query=qwerty+1
+            # http%3A//yandex.ru/news.php%3Ftype%3D123%26query%3Dqwerty%2B1       ## python way
+            # http%3A%2F%2Fyandex.ru%2Fnews.php%3Ftype%3D123%26query%3Dqwerty%2B1 ### php urlencode
+            # http%3A%2F%2Fyandex.ru%2Fnews.php%3Ftype%3D123%26query%3Dqwerty%2B1 ### php rawurlencode
+
+        else:
+            return ''
 
     def _sha1(self, data) -> str:
         """ Gets the base64-encoded SHA1 hash for the given data
@@ -837,26 +830,26 @@ class CodeBird:
         :param str data: The data to calculate the hash from
         :return str:     The hash
         """
-        return '121212121212'
-    # {
-    #     if (self::$_oauth_consumer_secret === null) {
-    #         throw new \Exception('To generate a hash, the consumer secret must be set.');
-    #     }
-    #     if (!function_exists('hash_hmac')) {
-    #         throw new \Exception('To generate a hash, the PHP hash extension must be available.');
-    #     }
-    #     return base64_encode(hash_hmac(
-    #         'sha1',
-    #         $data,
-    #         self::$_oauth_consumer_secret
-    #         . '&'
-    #         . ($this->_oauth_token_secret != null
-    #             ? $this->_oauth_token_secret
-    #             : ''
-    #         ),
-    #         true
-    #     ));
-    # }
+        if self._oauth_consumer_secret is None:
+            raise Exception('To generate a hash, the consumer secret must be set.')
+
+        # key = "CONSUMER_SECRET&TOKEN_SECRET"
+        key = self._oauth_consumer_secret + '&'
+        if self._oauth_token_secret is not None:
+            key += self._oauth_token_secret
+
+        # The Base String as specified here:
+        # raw = "BASE_STRING" # as specified by oauth
+        hashed = hmac.new(bytes(key, 'utf-8'), bytes(data, 'utf-8'), 'sha1')
+
+        #
+        # TODO :: error "unknown encoding: utf-64"
+        #
+
+        # The signature
+        s = base64.b64encode(hashed.digest()).decode('utf-64')
+        print("SING :: ", s)
+        return s
 
     def _nonce(self, length=8) -> str:
         """ Generates a (hopefully) unique random string
@@ -867,14 +860,6 @@ class CodeBird:
             raise Exception('Invalid nonce length.')
 
         return hashlib.md5(str(int(time.time())).encode('utf-8')).hexdigest()[:length]
-
-    # /**
-    #  *
-    #  *
-    #  *
-    #  *
-    #  * @return
-    #  */
 
     def _sign(self, httpmethod, method, params={}, append_to_get=False) -> str:
         """ Generates an OAuth signature
@@ -903,20 +888,42 @@ class CodeBird:
         if self._oauth_token is not None:
             sign_base_params['oauth_token'] = self._url(self._oauth_token)
 
-        signature = ''
-        if append_to_get is True:
-            for value in params.items():
-                sign_base_params[value[0]] = self._url(value[-1])
+        # signature = ''
+        # if append_to_get is True:   # is True
+        #     for value in params.items():
+        #         sign_base_params[value[0]] = self._url(value[-1])
+        #
+        #     sign_base_string = []
+        #     for value in sign_base_params.items():
+        #         sign_base_string.append(value[0] + '=' + value[-1])
+        #
+        #     sign_base_string = '&'.join(sign_base_string)
+        #     signature = self._sha1(httpmethod + '&' + self._url(method) + '&' + self._url(sign_base_string))
 
-            sign_base_string = []
-            for value in sign_base_params.items():
-                sign_base_string.append(value[0] + '=' + value[-1])
+        oauth_params = sign_base_params.copy()
+        for value in params.items():
+            sign_base_params[value[0]] = self._url(value[1])
 
-            sign_base_string = '&'.join(sign_base_string)
-            signature = self._sha1(httpmethod + '&' + self._url(method) + '&' + self._url(sign_base_string))
+        sign_base_string = []
+        for value in sign_base_params.items():
+            sign_base_string.append(value[0] + '=' + value[-1])
 
-        sign_base_params['oauth_signature'] = signature
-        params = sign_base_params
+        sign_base_string = '&'.join(sign_base_string)
+        signature = self._sha1(httpmethod + '&' + self._url(method) + '&' + self._url(sign_base_string))
+
+        # ksort($sign_base_params);
+        # $sign_base_string = '';
+        # foreach ($sign_base_params as $key => $value) {
+        #     $sign_base_string .= $key . '=' . $value . '&';
+        # }
+        # $sign_base_string = substr($sign_base_string, 0, -1);
+        # $signature        = $this->_sha1($httpmethod . '&' . $this->_url($method) . '&' . $this->_url($sign_base_string));
+
+        params = sign_base_params if append_to_get is True else oauth_params
+
+        params['oauth_signature'] = signature
+        # sign_base_params['oauth_signature'] = signature
+        # params = sign_base_params
 
         authorization = []
         if append_to_get is True:
@@ -985,31 +992,33 @@ class Entity:
 if __name__ == '__main__':
     print("Start")
 
-    consumer_key = 'oLVqNUOVNERDtKfh9n3vW1LXd'
-    consumer_secret = 'uLd0zJDK0nwcjZMN7jg9YMIZVOOasrIWzjJ3BtS1ZR9TnCO5Zl'
-    access_secret = '7Y5djMLVmVx0RUbCv7ojtIhI01AjZzSe4eEuuf1YKLpAL'
-    access_token = '2578434163-0CPPrAKfg3OtrccnEBjiojvFzZUeWl8fYyJf2bF'
+    # consumer_key = 'oLVqNUOVNERDtKfh9n3vW1LXd'
+    # consumer_secret = 'uLd0zJDK0nwcjZMN7jg9YMIZVOOasrIWzjJ3BtS1ZR9TnCO5Zl'
+    # access_token = '2578434163-0CPPrAKfg3OtrccnEBjiojvFzZUeWl8fYyJf2bF'
+    # access_token_secret = '7Y5djMLVmVx0RUbCv7ojtIhI01AjZzSe4eEuuf1YKLpAL'
+    consumer_key = 'bZx9BJxzEygTmxNSZLCyvzsCF'
+    consumer_secret = '3Vl2ttSEN8hVJFsIdDNNvyyjapPc3yT08lZ6MM583iqcM5MKBP'
+    access_token = '2541668575-MoLt0NwOLItRk03rUNymX6XbTqIgl1wpbaV6HOF'
+    access_token_secret = 'eK3H05LGVIe02qNqJFzgoFuXXRYfDsKSeaKP88YevQeEI'
 
-    # curl = CodeBird()._call_api_curl('GET', 'application_rateLimitStatus')
-    # curl = CodeBird().boo('fn', 'params', 'pppp')
-    # CodeBird()._get_endpoint('application/rate_limit_status')
-    # print("\nOUT :: ", curl)
-    # a = Entity(10, 1, 2)
-    # t1, t2 = a.boo('test')
-    # print(t1, t2)
-    # a.foo('boo/mamazuzu', 1, 2, 3)
-    # print("OUT :: ", a)
+
+    # call Api test
+    p_fn = 'application_rateLimitStatus'
+    p_params = []
+    cb = CodeBird()
+    cb.set_consumer_key(consumer_key, consumer_secret)
+    cb.set_token(access_token, access_token_secret)
+    out = cb.application_rateLimitStatus()
+    print("OUT :: ", out)
+
 
     # sign TEST
-
-
-    p_httpmethod = 'GET'
-    p_method = 'https://api.twitter.com/1.1/application/rate_limit_status.json'
-    p_params = {}
-    p_append_to_get = False
-
-    cb = CodeBird()
-    cb._oauth_consumer_key = consumer_key
-    # signt = cb._sign(p_httpmethod, p_method, p_params, p_append_to_get)
-    signt = cb._sign(p_httpmethod, p_method)
-    print("SIGN :: " + signt)
+    # p_httpmethod = 'GET'
+    # p_method = 'https://api.twitter.com/1.1/application/rate_limit_status.json'
+    # p_params = {}
+    # p_append_to_get = False
+    # cb = CodeBird()
+    # cb._oauth_consumer_key = consumer_key
+    # cb._oauth_consumer_secret = consumer_secret
+    # signt = cb._sign(p_httpmethod, p_method)
+    # print("SIGN :: " + signt)
