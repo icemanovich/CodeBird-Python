@@ -443,6 +443,7 @@ class CodeBird:
             c.setopt(pycurl.SSL_VERIFYPEER, 1)
             c.setopt(pycurl.SSL_VERIFYHOST, 2)
             c.setopt(pycurl.CAINFO, os.path.dirname(os.path.abspath(__file__)) + '/src/cacert.pem')
+            # c.setopt(pycurl.CAPATH, os.path.dirname(os.path.abspath(__file__)) + '/src/cacert.pem')
             c.setopt(pycurl.WRITEDATA, buffer)
             c.perform()
             code = c.getinfo(c.RESPONSE_CODE)
@@ -533,7 +534,7 @@ class CodeBird:
         """ Maps called PHP magic method name to Twitter API method
 
         :param str fn:    Function called
-        :param list|dict apiparams: byref API parameters
+        :param list|dict apiparams: by ref API parameters
         :return (str, str): string method, string method_template
         """
 
@@ -847,7 +848,7 @@ class CodeBird:
         #
 
         # The signature
-        s = base64.b64encode(hashed.digest()).decode('utf-64')
+        s = base64.b64encode(hashed.digest()).decode('utf-8')
         print("SING :: ", s)
         return s
 
@@ -1022,3 +1023,7 @@ if __name__ == '__main__':
     # cb._oauth_consumer_secret = consumer_secret
     # signt = cb._sign(p_httpmethod, p_method)
     # print("SIGN :: " + signt)
+
+    #
+    # TODO :: Add setup.py
+    #
