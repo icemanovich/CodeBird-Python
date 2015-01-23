@@ -8,6 +8,8 @@ import hmac
 import base64
 from io import BytesIO
 
+import requests
+
 
 __author__ = 'ignat'
 __date__ = '01.12.14 0:04'
@@ -455,6 +457,8 @@ class CodeBird:
         except Exception as e:
             print("ERROR :: ", e)
 
+    # #####################################################
+
     def _call_api_no_curl(self, httpmethod="GET", method='', params=None, multipart=False, app_only_auth=False, internal=False):
 
         """Calls the API without cURL
@@ -470,7 +474,72 @@ class CodeBird:
         #
         # TODO :: Write code for API call without CURL request !!!
         #
-        pass
+        authorization, url, params, request_headers = self._call_api_preparations(
+                httpmethod, method, params, multipart, app_only_auth)
+
+        # hostname          = parse_url($url, PHP_URL_HOST)
+        request_headers = [
+            'Authorization: ' + authorization,
+            'Accept: */*',
+            'Connection: Close'
+        ]
+
+        if httpmethod != 'GET' and multipart is False:
+            request_headers.append('Content-Type: application/x-www-form-urlencoded')
+
+        #
+        # TODO :: @see https://docs.python.org/2/library/ssl.html#client-side-operation
+        #
+
+        # $context = stream_context_create(array(
+        #     'http' => array(
+        #         'method'           => $httpmethod,
+        #         'protocol_version' => '1.1',
+        #         'header'           => implode("\r\n", $request_headers),
+        #         'timeout'          => $this->_timeout / 1000,
+        #         'content'          => $httpmethod === 'POST' ? $params : null,
+        #         'ignore_errors'    => true
+        #     ),
+        #     'ssl' => array(
+        #         'verify_peer'  => false,
+        #         'cafile'       => __DIR__ . '/cacert.pem',
+        #         'verify_depth' => 5,
+        #         'peer_name'    => $hostname
+        #     )
+        # ));
+        #
+        # $reply   = @file_get_contents($url, false, $context);
+        # $headers = $http_response_header;
+        # $result  = '';
+        # foreach ($headers as $header) {
+        #     $result .= $header . "\r\n";
+        # }
+        # $result .= "\r\n" . $reply;
+        #
+        # // find HTTP status
+        # $httpstatus = '500';
+        # $match      = array();
+        # if (preg_match('/HTTP\/\d\.\d (\d{3})/', $headers[0], $match)) {
+        #     $httpstatus = $match[1];
+        # }
+        #
+        # list($headers, $reply) = $this->_parseApiHeaders($result);
+        # $reply                 = $this->_parseApiReply($reply);
+        # $rate                  = $this->_getRateLimitInfo($headers);
+        # switch ($this->_return_format) {
+        #     case CODEBIRD_RETURNFORMAT_ARRAY:
+        #         $reply['httpstatus'] = $httpstatus;
+        #         $reply['rate']       = $rate;
+        #         break;
+        #     case CODEBIRD_RETURNFORMAT_OBJECT:
+        #         $reply->httpstatus = $httpstatus;
+        #         $reply->rate       = $rate;
+        #         break;
+        # }
+        # return $reply;
+    # #####################################################
+
+
 
     def _parse_api_params(self, params) -> dict:
         """Parse given params, detect query-style params
@@ -596,18 +665,16 @@ class CodeBird:
 
         return method
 
-    # /**
-    #  * Do preparations to make the API call
-    #  *
-    #  * @param string  $httpmethod      The HTTP method to use for making the request
-    #  * @param string  $method          The API method to call
-    #  * @param array   $params          The parameters to send along
-    #  * @param bool    $multipart       Whether to use multipart/form-data
-    #  * @param bool    $app_only_auth   Whether to use app-only bearer authentication
-    #  *
-    #  * @return array (string authorization, string url, array params, array request_headers)
-    #  */
     def _call_api_preparations(self, httpmethod, method, params, multipart, app_only_auth):
+        """ Do preparations to make the API call
+
+        :param str httpmethod:          The HTTP method to use for making the request
+        :param str method:              The API method to call
+        :param dict params:             The parameters to send along
+        :param boolean multipart:       Whether to use multipart/form-data
+        :param boolean app_only_auth:   Whether to use app-only bearer authentication
+        :return: (str authorization, st url, dict params, dict request_headers)
+        """
 
         url             = self._get_endpoint(method)
         authorization   = None
@@ -783,9 +850,9 @@ class CodeBird:
     #     }
     # }
 
-    # /**
-    #  * Signing helpers
-    #  */
+    """
+        Signing helpers
+    """
     def _url(self, data) -> str:
         """ URL-encodes the given data
         :param str|list data:
@@ -842,10 +909,6 @@ class CodeBird:
         # The Base String as specified here:
         # raw = "BASE_STRING" # as specified by oauth
         hashed = hmac.new(bytes(key, 'utf-8'), bytes(data, 'utf-8'), 'sha1')
-
-        #
-        # TODO :: error "unknown encoding: utf-64"
-        #
 
         # The signature
         s = base64.b64encode(hashed.digest()).decode('utf-8')
@@ -958,10 +1021,22 @@ class CodeBird:
 
     def make_no_curl(self):
         """
+        @see https://gist.github.com/kennethreitz/973705
         urllib.request()...
         """
         try:
-            pass
+            user = 'user'
+            paswd = 'pass'
+
+            r = requests.get('https://api.github.com', auth=(user, paswd))
+
+            data = r.content.decode()
+            # data = r.text
+            print(r.status_code)
+            print(r.headers['content-type'])
+            print(data)
+
+
         except Exception as e:
             print("ERROR :: ", e)
 
@@ -1003,26 +1078,22 @@ if __name__ == '__main__':
     access_token_secret = 'eK3H05LGVIe02qNqJFzgoFuXXRYfDsKSeaKP88YevQeEI'
 
 
+
+
     # call Api test
     p_fn = 'application_rateLimitStatus'
     p_params = []
     cb = CodeBird()
-    cb.set_consumer_key(consumer_key, consumer_secret)
-    cb.set_token(access_token, access_token_secret)
-    out = cb.application_rateLimitStatus()
-    print("OUT :: ", out)
 
+    cb.make_no_curl()
 
-    # sign TEST
-    # p_httpmethod = 'GET'
-    # p_method = 'https://api.twitter.com/1.1/application/rate_limit_status.json'
-    # p_params = {}
-    # p_append_to_get = False
-    # cb = CodeBird()
-    # cb._oauth_consumer_key = consumer_key
-    # cb._oauth_consumer_secret = consumer_secret
-    # signt = cb._sign(p_httpmethod, p_method)
-    # print("SIGN :: " + signt)
+    # TODO :: REMOVE
+    # cb._use_curl = False
+
+    # cb.set_consumer_key(consumer_key, consumer_secret)
+    # cb.set_token(access_token, access_token_secret)
+    # out = cb.application_rateLimitStatus()
+    # print("OUT :: ", out)
 
     #
     # TODO :: Add setup.py
