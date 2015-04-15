@@ -1,5 +1,4 @@
 Flask>=0.10.1
-GitPython (0.3.2rc1)
 opencorpora-tools>=0.4.4
 pycurl>=7
 pymongo>=2.7.2
