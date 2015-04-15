@@ -5,10 +5,8 @@ pymongo>=2.7.2
 pymorphous>=0.1.0
 pymorphy2>=0.8
 pymorphy2-dicts>=2
-pytest (2.6.1)
-PyYAML (3.11)
+pytest==2.6.1
 redis==2.10.1
 requests (2.4.0)
 setuptools==14.0
-sockjs-tornado==1.0.1
 tornado==4.1
