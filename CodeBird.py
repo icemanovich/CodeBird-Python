@@ -8,9 +8,6 @@ import hmac
 import base64
 from io import BytesIO
 
-import requests
-
-
 __author__ = 'ignat'
 __date__ = '01.12.14 0:04'
 
