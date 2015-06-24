@@ -88,8 +88,9 @@ class CodeBird:
             import pycurl
         except ImportError:
             self._use_curl = False
+            print('Unable to find pycurl extension.')
 
-    def grt_version(self):
+    def get_version(self):
         return self._version
 
     def set_timeout(self, timeout):
@@ -285,8 +286,7 @@ class CodeBird:
         :param str method: The API method to call
         :return: Whether the method is defined in internal API
         """
-        # internals = ['users/recommendations']
-        # return in_array($method, $internals);
+
         return method_name in ['users/recommendations']
 
     def _detect_media(self, method) -> bool:
@@ -304,8 +304,7 @@ class CodeBird:
         :param str method: The API method to call
         :return: Whether the method is defined in old API
         """
-        # $olds = array('account/push_destinations/device');
-        # in_array($method, $olds);
+
         return method in ['account/push_destinations/device']
 
     def _detect_method(self, method, params) -> str:
@@ -1084,6 +1083,7 @@ if __name__ == '__main__':
     p_fn = 'application_rateLimitStatus'
     p_params = []
     cb = CodeBird()
+    cb._nonce(8)
 
     cb.make_no_curl()
 
