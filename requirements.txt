@@ -8,4 +8,4 @@ pymorphy2-dicts>=2
 pytest>=2.7
 redis>=2.10.1
 setuptools>=14.0
-tornado==4.1
+tornado>=4.1
