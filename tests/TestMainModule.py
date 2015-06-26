@@ -5,11 +5,11 @@ from CodeBird import CodeBird
 
 
 class TestMainModule(unittest.TestCase):
+    """
+    :type cb: CodeBird
+    """
 
     cb = None
-    '''
-    :var: cb CodeBird
-    '''
 
     @classmethod
     def setUpClass(cls):
