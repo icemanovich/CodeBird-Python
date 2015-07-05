@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import base64
 from io import BytesIO
+import requests
 
 __author__ = 'ignat'
 __date__ = '01.12.14 0:04'
@@ -291,8 +292,7 @@ class CodeBird:
         :param str method: The API method to call
         :return: Whether the method is defined in media API
         """
-        # $medias = array('media/upload');
-        # return in_array($method, $medias);
+
         return method in ['media/upload']
 
     def _detect_old(self, method) -> bool:
@@ -1032,66 +1032,5 @@ class CodeBird:
             print(r.headers['content-type'])
             print(data)
 
-
         except Exception as e:
             print("ERROR :: ", e)
-
-
-# ======================================= #
-
-class Entity:
-    """Class to represent an entity. Callable to update the entity's position."""
-
-    def __init__(self, size, x, y):
-        self.x, self.y = x, y
-        self.size = size
-
-    def __call__(self, x, y):
-        """Change the position of the entity."""
-        self.x, self.y = x, y
-
-    def boo(self, *args):
-        print("BOO :: ", args)
-        return 'aaa', 'bbb'
-
-    def __getattr__(self, name):
-        def handler_function(*args, **kwargs):
-            print(name, args, kwargs)
-        return handler_function
-
-# ======================================= #
-
-if __name__ == '__main__':
-    print("Start")
-
-    # consumer_key = 'oLVqNUOVNERDtKfh9n3vW1LXd'
-    # consumer_secret = 'uLd0zJDK0nwcjZMN7jg9YMIZVOOasrIWzjJ3BtS1ZR9TnCO5Zl'
-    # access_token = '2578434163-0CPPrAKfg3OtrccnEBjiojvFzZUeWl8fYyJf2bF'
-    # access_token_secret = '7Y5djMLVmVx0RUbCv7ojtIhI01AjZzSe4eEuuf1YKLpAL'
-    consumer_key = 'bZx9BJxzEygTmxNSZLCyvzsCF'
-    consumer_secret = '3Vl2ttSEN8hVJFsIdDNNvyyjapPc3yT08lZ6MM583iqcM5MKBP'
-    access_token = '2541668575-MoLt0NwOLItRk03rUNymX6XbTqIgl1wpbaV6HOF'
-    access_token_secret = 'eK3H05LGVIe02qNqJFzgoFuXXRYfDsKSeaKP88YevQeEI'
-
-
-
-
-    # call Api test
-    p_fn = 'application_rateLimitStatus'
-    p_params = []
-    cb = CodeBird()
-    cb._nonce(8)
-
-    cb.make_no_curl()
-
-    # TODO :: REMOVE
-    # cb._use_curl = False
-
-    # cb.set_consumer_key(consumer_key, consumer_secret)
-    # cb.set_token(access_token, access_token_secret)
-    # out = cb.application_rateLimitStatus()
-    # print("OUT :: ", out)
-
-    #
-    # TODO :: Add setup.py
-    #
