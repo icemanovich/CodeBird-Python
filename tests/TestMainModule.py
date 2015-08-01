@@ -1,4 +1,5 @@
 __author__ = 'ignat'
+__project__ = 'PyBird'
 
 import unittest
 from CodeBird import CodeBird
@@ -65,8 +66,3 @@ class TestMainModule(unittest.TestCase):
         # expect Raise an Exception
         length = 0
         self.assertRaises(Exception, self.cb._nonce, length)
-
-
-
-if __name__ == '__main__':
-    unittest.main()
