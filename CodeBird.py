@@ -81,7 +81,6 @@ class CodeBird:
     # =================================================== #
 
     def __init__(self):
-        print('INIT')
         try:
             import pycurl
         except ImportError:
